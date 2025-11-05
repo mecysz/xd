@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walet Karo (Jack of Diamonds)</title>
+    <!-- Import Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Import Socket.IO client -->
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- Import czcionki Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Ciemne tło przypominające atmosferę gry */
+            background-color: #111827; /* gray-900 */
+        }
+        /* Niestandardowa animacja pulsowania dla licznika czasu */
+        @keyframes pulse-red {
+            0%, 100% {
+                opacity: 1;
+                text-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
+            }
+            50% {
+                opacity: 0.8;
+                text-shadow: 0 0 15px rgba(239, 68, 68, 1);
+            }
+        }
+        .timer-pulse {
+            animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        /* Styl dla "Waleta Karo" */
+        .card-icon {
+            font-size: 3rem;
+            line-height: 1;
+            color: #ef4444; /* red-500 */
+        }
+        /* Ukrywanie strzałek w polu liczbowym */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+    </style>
+</head>
+<body class="text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <div id="game-container" class="w-full max-w-2xl mx-auto">
+
+        <!-- EKRAN 1: STARTOWY (USTAWIENIA) -->
+        <div id="screen-start" class="hidden bg-gray-800 shadow-xl rounded-lg p-8 text-center transition-all duration-300">
+            <div class="card-icon mb-4">♦</div>
+            <h1 class="text-4xl font-black text-red-500 mb-4">WALET KARO</h1>
+            <p class="text-lg text-gray-300 mb-6">Gra psychologiczna na podstawie "Alice in Borderland"</p>
+            
+            <div id="lobbyInfo" class="mb-4">
+                <p class="text-lg text-gray-400">KOD POKOJU:</p>
+                <p id="roomCodeDisplay" class="text-3xl font-bold text-yellow-400 tracking-widest bg-gray-900 p-2 rounded-md inline-block">-----</p>
+            </div>
+
+            <div class="text-left bg-gray-900 p-4 rounded-md border border-gray-700 mb-6">
+                <h2 class="text-xl font-bold mb-2">Zasady Gry:</h2>
+                <ul class="list-disc list-inside text-gray-300 space-y-1">
+                    <li>W każdej rundzie wybierz liczbę od 0.00 do 100.00.</li>
+                    <li>Wygrywa gracz, którego liczba jest najbliższa <strong>80% średniej</strong> ze wszystkich liczb.</li>
+                    <li>Zwycięzca(y) rundy dostają +1 punkt.</li>
+                    <li>Gracz z największą liczbą punktów na koniec gry wygrywa.</li>
+                </ul>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="totalRounds" class="block text-sm font-medium text-gray-300 mb-1">Liczba Rund:</label>
+                    <select id="totalRounds" class="w-full bg-gray-700 text-white border border-gray-600 rounded-md p-2 focus:ring-red-500 focus:border-red-500">
+                        <option value="3">3 Rundy</option>
+                        <option value="5" selected>5 Rund</option>
+                        <option value="7">7 Rund</option>
+                    </select>
+                </div>
+                
+                <button id="startGameButton" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform duration-200 hover:scale-105">
+                    Rozpocznij Grę (tylko dla hosta)
+                </button>
+            </div>
+        </div>
+
+        <!-- EKRAN LOBBY (NOWY) -->
+        <div id="screen-lobby" class="bg-gray-800 shadow-xl rounded-lg p-8 text-center transition-all duration-300">
+            <div class="card-icon mb-4">♦</div>
+            <h1 class="text-4xl font-black text-red-500 mb-4">DOŁĄCZ DO GRY</h1>
+            <p class="text-lg text-gray-300 mb-6">Wprowadź swoją nazwę i stwórz grę lub dołącz do istniejącej.</p>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="playerNameInput" class="block text-sm font-medium text-gray-300 mb-1">Twoja Nazwa:</label>
+                    <input type="text" id="playerNameInput" maxlength="15" class="w-full bg-gray-700 text-white border border-gray-600 rounded-md p-2 focus:ring-red-500 focus:border-red-500" placeholder="Gracz123">
+                </div>
+
+                <button id="createGameButton" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform duration-200 hover:scale-105">
+                    Stwórz Nową Grę
+                </button>
+
+                <div class="relative flex py-5 items-center">
+                    <div class="flex-grow border-t border-gray-600"></div>
+                    <span class="flex-shrink mx-4 text-gray-400">LUB</span>
+                    <div class="flex-grow border-t border-gray-600"></div>
+                </div>
+
+                <div>
+                    <label for="roomCodeInput" class="block text-sm font-medium text-gray-300 mb-1">Kod Pokoju:</label>
+                    <input type="text" id="roomCodeInput" maxlength="5" class="w-full bg-gray-700 text-white border border-gray-600 rounded-md p-2 uppercase text-center tracking-widest" placeholder="ABCDE">
+                </div>
+                <button id="joinGameButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform duration-200 hover:scale-105">
+                    Dołącz do Gry
+                </button>
+            </div>
+        </div>
+
+        <!-- EKRAN 2: GRA (WPROWADZANIE) -->
+        <div id="screen-game" class="hidden bg-gray-800 shadow-xl rounded-lg p-8 transition-all duration-300">
+            <!-- Nagłówek -->
+            <div class="flex justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                <div>
+                    <h2 id="roundHeader" class="text-2xl font-bold text-red-500"></h2>
+                    <p id="turnHeader" class="text-lg text-gray-300"></p>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm text-gray-400">POZOSTAŁY CZAS:</div>
+                    <div id="timerDisplay" class="text-5xl font-extrabold text-red-500 timer-pulse">60</div>
+                </div>
+            </div>
+
+            <!-- Pole wprowadzania -->
+            <div class="mb-6">
+                <label for="numberInput" class="block text-lg font-medium text-gray-300 mb-3 text-center">Wprowadź liczbę (0.00 - 100.00):</label>
+                <input type="number" id="numberInput" min="0" max="100" step="0.01" class="w-full text-center text-4xl font-bold bg-gray-700 text-white border-2 border-gray-600 rounded-lg p-4 focus:ring-red-500 focus:border-red-500" placeholder="--.--">
+            </div>
+            
+            <button id="submitButton" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform duration-200 hover:scale-105">
+                Zatwierdź Wybór
+            </button>
+
+            <!-- Tabela wyników na żywo (tylko punkty) -->
+            <div class="mt-8">
+                <h3 class="text-lg font-semibold mb-2 text-gray-400">Tablica Wyników:</h3>
+                <div id="scoreboard" class="bg-gray-900 rounded-lg p-4 border border-gray-700 grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+                    <!-- Wyniki będą wstrzykiwane przez JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- EKRAN 3: WYNIKI RUNDY -->
+        <div id="screen-results" class="hidden bg-gray-800 shadow-xl rounded-lg p-8 text-center transition-all duration-300">
+            <h2 id="roundResultHeader" class="text-3xl font-bold text-red-500 mb-6">WYNIKI RUNDY 1</h2>
+
+            <div class="grid md:grid-cols-2 gap-4 mb-6">
+                <!-- Obliczenia -->
+                <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                    <h3 class="text-sm font-medium text-gray-400 uppercase">Średnia (A)</h3>
+                    <p id="averageDisplay" class="text-4xl font-extrabold text-white">--.--</p>
+                </div>
+                <div class="bg-gray-900 p-4 rounded-lg border border-red-700 shadow-lg">
+                    <h3 class="text-sm font-medium text-gray-400 uppercase">Wartość Docelowa (T = A × 0.8)</h3>
+                    <p id="targetDisplay" class="text-4xl font-extrabold text-red-400">--.--</p>
+                </div>
+            </div>
+
+            <!-- Zwycięzca -->
+            <div class="mb-6">
+                <h3 class="text-lg font-medium text-gray-300">Zwycięzca Rundy:</h3>
+                <p id="winnerDisplay" class="text-2xl font-bold text-yellow-400">--</p>
+            </div>
+
+            <!-- Tabela wyników rundy -->
+            <div class="mb-6">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th class="p-3 font-semibold text-sm uppercase">Gracz</th>
+                            <th class="p-3 font-semibold text-sm uppercase text-right">Wybrana Liczba</th>
+                            <th class="p-3 font-semibold text-sm uppercase text-right">Różnica</th>
+                            <th class="p-3 font-semibold text-sm uppercase text-right">Nowy Wynik</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsTableBody" class="bg-gray-900 divide-y divide-gray-700">
+                        <!-- Wyniki wstrzykiwane przez JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <p id="nextRoundTimer" class="text-lg text-gray-400">Następna runda za 15...</p>
+        </div>
+
+        <!-- EKRAN 4: KONIEC GRY -->
+        <div id="screen-end" class="hidden bg-gray-800 shadow-xl rounded-lg p-8 text-center transition-all duration-300">
+            <div class="card-icon mb-4">♦</div>
+            <h1 class="text-4xl font-black text-red-500 mb-4">KONIEC GRY</h1>
+            
+            <div class="bg-gray-900 p-6 rounded-lg border border-gray-700 mb-6">
+                <h2 class="text-lg font-medium text-gray-300 mb-2">Ostateczny Zwycięzca:</h2>
+                <p id="finalWinnerDisplay" class="text-4xl font-bold text-yellow-400">--</p>
+            </div>
+
+            <!-- Końcowa tabela wyników -->
+            <h3 class="text-xl font-semibold mb-4 text-gray-300">Ostateczne Wyniki</h3>
+            <table class="w-full text-left mb-8">
+                <thead class="bg-gray-700">
+                    <tr>
+                        <th class="p-3 font-semibold text-sm uppercase">Gracz</th>
+                        <th class="p-3 font-semibold text-sm uppercase text-right">Punkty</th>
+                    </tr>
+                </thead>
+                <tbody id="finalTableBody" class="bg-gray-900 divide-y divide-gray-700">
+                    <!-- Wyniki wstrzykiwane przez JS -->
+                </tbody>
+            </table>
+            
+            <button id="restartButton" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-transform duration-200 hover:scale-105">
+                Graj Ponownie
+            </button>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // Definicje stałych i zmiennych stanu gry
+        const GAME_CONFIG = {
+            INPUT_TIME: 60, // Czas na wprowadzenie liczby
+            RESULTS_TIME: 15, // Czas wyświetlania wyników
+            DEFAULT_INPUT: 50.00,
+            TARGET_MULTIPLIER: 0.8
+        };
+
+        // Zmienne stanu klienta
+        let socket;
+        let gameState = {
+            roomCode: null,
+            players: {},
+            state: 'lobby',
+            // ... inne dane z serwera
+        };
+        let myPlayerId = null;
+        let clientTimers = { input: null, results: null };
+
+        // Elementy DOM
+        const screens = {
+            start: document.getElementById('screen-start'),
+            lobby: document.getElementById('screen-lobby'),
+            game: document.getElementById('screen-game'),
+            results: document.getElementById('screen-results'),
+            end: document.getElementById('screen-end'),
+        };
+
+        const ui = {
+            totalRoundsSelect: document.getElementById('totalRounds'),
+            startGameButton: document.getElementById('startGameButton'),
+            
+            roundHeader: document.getElementById('roundHeader'),
+            turnHeader: document.getElementById('turnHeader'),
+            timerDisplay: document.getElementById('timerDisplay'),
+            numberInput: document.getElementById('numberInput'),
+            submitButton: document.getElementById('submitButton'),
+            scoreboard: document.getElementById('scoreboard'),
+            
+            roundResultHeader: document.getElementById('roundResultHeader'),
+            averageDisplay: document.getElementById('averageDisplay'),
+            targetDisplay: document.getElementById('targetDisplay'),
+            winnerDisplay: document.getElementById('winnerDisplay'),
+            resultsTableBody: document.getElementById('resultsTableBody'),
+            nextRoundTimer: document.getElementById('nextRoundTimer'),
+            
+            finalWinnerDisplay: document.getElementById('finalWinnerDisplay'),
+            finalTableBody: document.getElementById('finalTableBody'),
+            restartButton: document.getElementById('restartButton'),
+
+            playerNameInput: document.getElementById('playerNameInput'),
+            createGameButton: document.getElementById('createGameButton'),
+            roomCodeInput: document.getElementById('roomCodeInput'),
+            joinGameButton: document.getElementById('joinGameButton'),
+            roomCodeDisplay: document.getElementById('roomCodeDisplay'),
+        };
+
+        // Funkcje pomocnicze
+        function updateScreen(activeScreen) {
+            Object.values(screens).forEach(screen => {
+                screen.classList.add('hidden');
+            });
+            if (screens[activeScreen]) {
+                screens[activeScreen].classList.remove('hidden');
+            }
+        }
+
+        /** Clamp (ograniczenie) liczby do zakresu 0.00 - 100.00 */
+        function clampNumber(num) {
+            return Math.max(0, Math.min(100, num));
+        }
+
+        /** Formatowanie liczby do dwóch miejsc po przecinku */
+        function formatNum(num) {
+            return parseFloat(num.toFixed(2));
+        }
+
+        // --- Główna Logika Gry ---
+        
+        function updateScoreboard() {
+            ui.scoreboard.innerHTML = '';
+            const sortedPlayers = Object.values(gameState.players).sort((a, b) => b.score - a.score);
+            
+            sortedPlayers.forEach(player => {
+                const isMe = player.id === myPlayerId;
+                const hasChosen = gameState.state === 'in-game' && player.lastChoice !== null;
+                const item = document.createElement('div');
+                item.className = `p-2 rounded ${isMe ? 'bg-red-700 text-white font-bold' : 'bg-gray-700 text-gray-300'} ${hasChosen ? 'opacity-50' : ''}`;
+                item.innerHTML = `
+                    <div class="text-xs truncate">${player.name}</div>
+                    <div class="text-lg font-bold">${player.score} P</div>
+                `;
+                ui.scoreboard.appendChild(item);
+            });
+        }
+
+        function handleSubmit() {
+            ui.submitButton.disabled = true;
+
+            let playerInput = parseFloat(ui.numberInput.value);
+            if (isNaN(playerInput) || ui.numberInput.value.trim() === '') {
+                playerInput = GAME_CONFIG.DEFAULT_INPUT;
+            }
+            const finalNumber = formatNum(clampNumber(playerInput));
+
+            socket.emit('submitNumber', { roomCode: gameState.roomCode, number: finalNumber });
+        }
+
+        function showRoundResults({ results, average, target, winners, minDiff }) {
+            updateScreen('results');
+            
+            // Uzupełnij dane
+            ui.roundResultHeader.textContent = `WYNIKI RUNDY ${gameState.currentRound}`;
+            ui.averageDisplay.textContent = average.toFixed(2);
+            ui.targetDisplay.textContent = target.toFixed(2);
+            
+            // Wyświetl zwycięzców
+            ui.winnerDisplay.textContent = winners.map(w => w.name).join(', ') || 'Brak';
+
+            // Wypełnij tabelę
+            ui.resultsTableBody.innerHTML = '';
+            results.sort((a, b) => a.diff - b.diff); // Sortuj wg najmniejszej różnicy
+            
+            results.forEach(res => {
+                const isWinner = winners.some(w => w.id === res.id);
+                const isMe = res.id === myPlayerId;
+                const row = document.createElement('tr');
+                row.className = `${isWinner ? 'bg-yellow-900 bg-opacity-50 text-yellow-300' : ''} ${isMe ? 'font-bold' : ''}`;
+                row.innerHTML = `
+                    <td class="p-3">${res.name} ${isWinner ? '🏆' : ''}</td>
+                    <td class="p-3 text-right">${res.lastChoice.toFixed(2)}</td>
+                    <td class="p-3 text-right">${res.diff.toFixed(2)}</td>
+                    <td class="p-3 text-right text-lg font-bold">${res.score} P</td>
+                `;
+                ui.resultsTableBody.appendChild(row);
+            });
+        }
+
+        function showEndGame({ sortedPlayers, finalWinners }) {
+            updateScreen('end');
+            
+            ui.finalWinnerDisplay.textContent = finalWinners.map(w => w.name).join(', ') || 'Brak';
+            
+            // Wypełnij końcową tabelę
+            ui.finalTableBody.innerHTML = '';
+            sortedPlayers.forEach(player => {
+                const isWinner = finalWinners.some(w => w.id === player.id);
+                const isMe = player.id === myPlayerId;
+
+                const row = document.createElement('tr');
+                row.className = `${isWinner ? 'text-yellow-400 font-bold' : ''} ${isMe && !isWinner ? 'text-white' : ''}`;
+                row.innerHTML = `
+                    <td class="p-3">${player.name} ${isWinner ? '🏆' : ''}</td>
+                    <td class="p-3 text-right text-xl font-bold">${player.score} P</td>
+                `;
+                ui.finalTableBody.appendChild(row);
+            });
+        }
+
+        function startClientTimer(displayElement, duration) {
+            let timeLeft = duration;
+            displayElement.textContent = timeLeft;
+            return setInterval(() => {
+                timeLeft = Math.max(0, timeLeft - 1);
+                displayElement.textContent = timeLeft;
+            }, 1000);
+        }
+
+        // Event Listeners
+        ui.submitButton.addEventListener('click', handleSubmit);
+        
+        // Umożliwia wysłanie enterem
+        ui.numberInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Zapobiegaj domyślnej akcji (jeśli jest w formularzu)
+                if (!ui.submitButton.disabled) {
+                    handleSubmit();
+                }
+            }
+        });
+
+        // --- Logika sieciowa ---
+        function connectToServer() {
+            socket = io();
+            myPlayerId = socket.id;
+
+            socket.on('connect', () => {
+                myPlayerId = socket.id;
+                console.log('Połączono z serwerem! Moje ID:', myPlayerId);
+                updateScreen('lobby');
+            });
+
+            socket.on('gameUpdate', (serverGameState) => {
+                console.log('Otrzymano aktualizację gry:', serverGameState);
+                gameState = serverGameState;
+                
+                const me = gameState.players[myPlayerId];
+
+                if (gameState.state === 'lobby') {
+                    updateScreen('start');
+                    ui.totalRoundsSelect.value = gameState.totalRounds;
+                    ui.totalRoundsSelect.disabled = !me?.isHost;
+                    ui.startGameButton.classList.toggle('hidden', !me?.isHost);
+                    ui.roomCodeDisplay.textContent = gameState.roomCode;
+                }
+                updateScoreboard();
+            });
+
+            socket.on('startRound', ({ round, time }) => {
+                console.log(`Rozpoczyna się runda ${round}`);
+                if (clientTimers.input) clearInterval(clientTimers.input);
+                if (clientTimers.results) clearInterval(clientTimers.results);
+
+                updateScreen('game');
+                ui.roundHeader.textContent = `RUNDA ${round} Z ${gameState.totalRounds}`;
+                ui.turnHeader.textContent = `Wybierz swoją liczbę...`;
+                ui.numberInput.value = '';
+                ui.submitButton.disabled = false;
+
+                ui.timerDisplay.classList.add('timer-pulse');
+                clientTimers.input = startClientTimer(ui.timerDisplay, time);
+            });
+
+            socket.on('roundResults', (resultsPayload) => {
+                console.log('Otrzymano wyniki rundy:', resultsPayload);
+                if (clientTimers.input) clearInterval(clientTimers.input);
+                ui.timerDisplay.classList.remove('timer-pulse');
+
+                showRoundResults(resultsPayload);
+
+                if (clientTimers.results) clearInterval(clientTimers.results);
+                clientTimers.results = startClientTimer(ui.nextRoundTimer, GAME_CONFIG.RESULTS_TIME);
+            });
+
+            socket.on('gameOver', (endPayload) => {
+                console.log('Koniec gry!', endPayload);
+                if (clientTimers.results) clearInterval(clientTimers.results);
+                showEndGame(endPayload);
+            });
+
+            socket.on('error', (error) => {
+                alert(`Błąd: ${error.message}`);
+            });
+
+            ui.createGameButton.addEventListener('click', () => {
+                const playerName = ui.playerNameInput.value.trim() || `Gracz${Math.floor(Math.random()*1000)}`;
+                const totalRounds = parseInt(ui.totalRoundsSelect.value, 10);
+                socket.emit('createGame', { playerName, totalRounds });
+            });
+
+            ui.joinGameButton.addEventListener('click', () => {
+                const playerName = ui.playerNameInput.value.trim() || `Gracz${Math.floor(Math.random()*1000)}`;
+                const roomCode = ui.roomCodeInput.value.trim().toUpperCase();
+                if (roomCode) {
+                    socket.emit('joinGame', { playerName, roomCode });
+                } else {
+                    alert('Wprowadź kod pokoju!');
+                }
+            });
+
+            ui.startGameButton.addEventListener('click', () => {
+                socket.emit('startGame', { roomCode: gameState.roomCode });
+            });
+
+            ui.totalRoundsSelect.addEventListener('change', (e) => {
+                // Ta funkcja będzie musiała wysyłać event do serwera, aby zmienić ustawienia
+                // Na razie zostawiamy to uproszczone - ustawienia są brane przy tworzeniu gry.
+            });
+
+            ui.restartButton.addEventListener('click', () => {
+                updateScreen('lobby'); // Wróć do lobby, nie resetuj połączenia
+            });
+        }
+
+        connectToServer();
+
+    </script>
+</body>
+</html>
